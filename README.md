@@ -7,7 +7,7 @@
 There are two endpoints in this solution:
 
 - **PUT /product/** - This endpoint configures the **bucket automatically** from the CDK stack and uses the `context.requestId` for the object Keys
-- **PUT /product/{bucket}/{object}** - This endpoint allows the requestor to specify the bucket and object Key manually.
+- **PUT /product/{bucket}/{key}** - This endpoint allows the requestor to specify the bucket and object Key manually.
 
 ## Testing
 
@@ -26,7 +26,7 @@ curl --location --request PUT 'https://{API_ID}.execute-api.eu-west-1.amazonaws.
 ### Endpoint 2 /product/{bucket}/{object}
 
 ```
-curl --location --request PUT 'https://{API_ID}.execute-api.eu-west-1.amazonaws.com/prod/product/rb-api-target-xml-bucket/p1234' \
+curl --location --request PUT 'https://{API_ID}.execute-api.eu-west-1.amazonaws.com/prod/product/{BUCKET}/{KEY}' \
 --header 'Content-Type: application/xml' \
 --header 'x-api-key: MyApiKeyThatIsAtLeast20Characters' \
 --data-raw '<Product>

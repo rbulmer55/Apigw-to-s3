@@ -23,6 +23,11 @@ export class ServerlessApiS3DirectStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
 
+    // Create a target bucket to drop XML data into
+    const targetBucket = new Bucket(this, "api-target-xml-bucket", {
+      bucketName: "rb-api-target-xml-bucket",
+    });
+
     //Create a new hanlder to parse the XML files
     const xmlParserHandler: NodejsFunction = new NodejsFunction(
       this,
@@ -37,13 +42,9 @@ export class ServerlessApiS3DirectStack extends Stack {
           minify: true,
           externalModules: ["aws-sdk"],
         },
+        environment: { BUCKET_NAME: targetBucket.bucketName },
       }
     );
-
-    // Create a target bucket to drop XML data into
-    const targetBucket = new Bucket(this, "api-target-xml-bucket", {
-      bucketName: "rb-api-target-xml-bucket",
-    });
 
     // Create an event trigger for the lambda when new objects created (inc PUT)
     targetBucket.addEventNotification(
@@ -70,10 +71,10 @@ export class ServerlessApiS3DirectStack extends Stack {
     // Add API resources
     const productResource = XmlApi.root.addResource("product");
     // Add bucket name path
-    const productBucketResource = productResource.addResource("{bucket}");
+    const productBucketResource = productResource.addResource("{bucketName}");
     // Add product code path
-    const productBucketItemResource =
-      productBucketResource.addResource("{procode}");
+    const productBucketKeyResource =
+      productBucketResource.addResource("{objectKey}");
 
     // Create IAM Role for API Gateway
     this.apiGatewayRole = new Role(this, "api-gateway-role", {
@@ -99,8 +100,8 @@ export class ServerlessApiS3DirectStack extends Stack {
         passthroughBehavior: PassthroughBehavior.WHEN_NO_TEMPLATES,
         // Map the path parameters to the S3 integration
         requestParameters: {
-          "integration.request.path.bucket": "method.request.path.bucket",
-          "integration.request.path.object": "method.request.path.procode",
+          "integration.request.path.bucket": "method.request.path.bucketName",
+          "integration.request.path.object": "method.request.path.objectKey",
           "integration.request.header.Accept": "method.request.header.Accept",
         },
         integrationResponses: [
@@ -120,8 +121,8 @@ export class ServerlessApiS3DirectStack extends Stack {
       authorizationType: AuthorizationType.NONE,
       apiKeyRequired: true,
       requestParameters: {
-        "method.request.path.bucket": true,
-        "method.request.path.procode": true,
+        "method.request.path.bucketName": true,
+        "method.request.path.objectKey": true,
         "method.request.header.Accept": true,
         "method.request.header.Content-Type": true,
       },
@@ -136,7 +137,7 @@ export class ServerlessApiS3DirectStack extends Stack {
     };
 
     // Add the API method
-    productBucketItemResource.addMethod(
+    productBucketKeyResource.addMethod(
       "PUT",
       putObjectIntegration,
       putObjectMethodOptions
