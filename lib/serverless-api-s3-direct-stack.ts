@@ -9,6 +9,7 @@ import {
   AwsIntegration,
   MethodOptions,
   UsagePlan,
+  MethodLoggingLevel,
 } from "aws-cdk-lib/aws-apigateway";
 import { Construct } from "constructs";
 import { LambdaDestination } from "aws-cdk-lib/aws-s3-notifications";
@@ -61,6 +62,9 @@ export class ServerlessApiS3DirectStack extends Stack {
         types: [EndpointType.REGIONAL],
       },
       binaryMediaTypes: ["application/xml"],
+      deployOptions: {
+        loggingLevel: MethodLoggingLevel.ERROR,
+      },
     });
 
     // Add API resources
@@ -132,10 +136,60 @@ export class ServerlessApiS3DirectStack extends Stack {
     };
 
     // Add the API method
-    const diS3Method = productBucketItemResource.addMethod(
+    productBucketItemResource.addMethod(
       "PUT",
       putObjectIntegration,
       putObjectMethodOptions
+    );
+
+    // Create PutObject method
+    const putObjectIntegrationv2 = new AwsIntegration({
+      service: "s3",
+      region: "eu-west-1",
+      integrationHttpMethod: "PUT",
+      path: "{bucket}/{object}",
+      options: {
+        credentialsRole: this.apiGatewayRole,
+        passthroughBehavior: PassthroughBehavior.WHEN_NO_TEMPLATES,
+        requestParameters: {
+          "integration.request.path.bucket": `'${targetBucket.bucketName}'`,
+          "integration.request.path.object": "context.requestId",
+          "integration.request.header.Accept": "method.request.header.Accept",
+        },
+        integrationResponses: [
+          {
+            statusCode: "200",
+            responseParameters: {
+              "method.response.header.Content-Type":
+                "integration.response.header.Content-Type",
+            },
+          },
+        ],
+      },
+    });
+
+    //PutObject method options
+    const putObjectMethodOptionsv2: MethodOptions = {
+      authorizationType: AuthorizationType.NONE,
+      apiKeyRequired: true,
+      requestParameters: {
+        "method.request.header.Accept": true,
+        "method.request.header.Content-Type": true,
+      },
+      methodResponses: [
+        {
+          statusCode: "200",
+          responseParameters: {
+            "method.response.header.Content-Type": true,
+          },
+        },
+      ],
+    };
+
+    productResource.addMethod(
+      "PUT",
+      putObjectIntegrationv2,
+      putObjectMethodOptionsv2
     );
 
     // Secure the API with an API Key
