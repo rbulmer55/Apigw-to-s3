@@ -25,7 +25,7 @@ export class ServerlessApiS3DirectStack extends Stack {
 
     // Create a target bucket to drop XML data into
     const targetBucket = new Bucket(this, "api-target-xml-bucket", {
-      bucketName: "rb-api-target-xml-bucket",
+      bucketName: "0822-api-target-xml-bucket",
     });
 
     //Create a new hanlder to parse the XML files
