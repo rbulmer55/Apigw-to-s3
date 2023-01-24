@@ -86,7 +86,7 @@ export class ServerlessApiS3DirectStack extends Stack {
     this.apiGatewayRole.addToPolicy(
       new PolicyStatement({
         actions: ["s3:PutObject"],
-        resources: [targetBucket.bucketArn + "/"],
+        resources: [targetBucket.bucketArn + "/*"],
       })
     );
 
