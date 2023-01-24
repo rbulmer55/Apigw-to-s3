@@ -1,6 +1,11 @@
-import { Stack, StackProps } from "aws-cdk-lib";
+import { join } from "path";
+import { Construct } from "constructs";
+import { RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import { Bucket, EventType } from "aws-cdk-lib/aws-s3";
 import { Role, ServicePrincipal, PolicyStatement } from "aws-cdk-lib/aws-iam";
+import { LambdaDestination } from "aws-cdk-lib/aws-s3-notifications";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+import { Runtime } from "aws-cdk-lib/aws-lambda";
 import {
   AuthorizationType,
   EndpointType,
@@ -11,11 +16,6 @@ import {
   UsagePlan,
   MethodLoggingLevel,
 } from "aws-cdk-lib/aws-apigateway";
-import { Construct } from "constructs";
-import { LambdaDestination } from "aws-cdk-lib/aws-s3-notifications";
-import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
-import { Runtime } from "aws-cdk-lib/aws-lambda";
-import { join } from "path";
 
 export class ServerlessApiS3DirectStack extends Stack {
   public readonly apiGatewayRole: Role;
@@ -25,7 +25,8 @@ export class ServerlessApiS3DirectStack extends Stack {
 
     // Create a target bucket to drop XML data into
     const targetBucket = new Bucket(this, "api-target-xml-bucket", {
-      bucketName: "0822-api-target-xml-bucket",
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
     });
 
     //Create a new hanlder to parse the XML files
@@ -85,40 +86,46 @@ export class ServerlessApiS3DirectStack extends Stack {
     this.apiGatewayRole.addToPolicy(
       new PolicyStatement({
         actions: ["s3:PutObject"],
-        //resources: [targetBucket.bucketArn], For some reason not working?
-        resources: ["*"],
+        resources: [targetBucket.bucketArn + "/"],
       })
     );
-    // Create PutObject method
-    const putObjectIntegration = new AwsIntegration({
-      service: "s3",
-      region: "eu-west-1",
-      path: "{bucket}/{object}",
-      integrationHttpMethod: "PUT",
-      options: {
-        credentialsRole: this.apiGatewayRole,
-        passthroughBehavior: PassthroughBehavior.WHEN_NO_TEMPLATES,
-        // Map the path parameters to the S3 integration
-        requestParameters: {
-          "integration.request.path.bucket": "method.request.path.bucketName",
-          "integration.request.path.object": "method.request.path.objectKey",
-          "integration.request.header.Accept": "method.request.header.Accept",
-        },
-        integrationResponses: [
-          {
-            statusCode: "200",
-            responseParameters: {
-              "method.response.header.Content-Type":
-                "integration.response.header.Content-Type",
-            },
-          },
-        ],
-      },
-    });
 
-    //PutObject method options
-    const putObjectMethodOptions: MethodOptions = {
+    // Create the new integration method
+    const putObjectIntegrationUserSpecified: AwsIntegration =
+      new AwsIntegration({
+        service: "s3",
+        region: "eu-west-1",
+        path: "{bucket}/{object}",
+        integrationHttpMethod: "PUT",
+        options: {
+          credentialsRole: this.apiGatewayRole,
+          // Passes the request body to S3 without transformation
+          passthroughBehavior: PassthroughBehavior.WHEN_NO_MATCH,
+          // Map the path parameters to the S3 integration
+          requestParameters: {
+            // use the bucket name in the request path
+            "integration.request.path.bucket": "method.request.path.bucketName",
+            // use the object key in the request path
+            "integration.request.path.object": "method.request.path.objectKey",
+            "integration.request.header.Accept": "method.request.header.Accept",
+          },
+          integrationResponses: [
+            {
+              statusCode: "200",
+              responseParameters: {
+                "method.response.header.Content-Type":
+                  "integration.response.header.Content-Type",
+              },
+            },
+          ],
+        },
+      });
+
+    // Create the endpoint method options
+    const putObjectUserSpecifiedMethodOptions: MethodOptions = {
+      // Protected by API Key
       authorizationType: AuthorizationType.NONE,
+      // Require the API Key on all requests
       apiKeyRequired: true,
       requestParameters: {
         "method.request.path.bucketName": true,
@@ -136,27 +143,31 @@ export class ServerlessApiS3DirectStack extends Stack {
       ],
     };
 
-    // Add the API method
+    // assign the integration to /product/{bucket}/{key} resource
     productBucketKeyResource.addMethod(
       "PUT",
-      putObjectIntegration,
-      putObjectMethodOptions
+      putObjectIntegrationUserSpecified,
+      putObjectUserSpecifiedMethodOptions
     );
 
-    // Create PutObject method
-    const putObjectIntegrationv2 = new AwsIntegration({
+    // Create new Integration method
+    const putObjectIntegrationAutoName: AwsIntegration = new AwsIntegration({
       service: "s3",
       region: "eu-west-1",
       integrationHttpMethod: "PUT",
       path: "{bucket}/{object}",
       options: {
         credentialsRole: this.apiGatewayRole,
-        passthroughBehavior: PassthroughBehavior.WHEN_NO_TEMPLATES,
+        // Passes the request body to S3 without transformation
+        passthroughBehavior: PassthroughBehavior.WHEN_NO_MATCH,
         requestParameters: {
+          // Specify the bucket name from the XML bucket we created above
           "integration.request.path.bucket": `'${targetBucket.bucketName}'`,
+          // Specify the object name using the APIG context requestId
           "integration.request.path.object": "context.requestId",
           "integration.request.header.Accept": "method.request.header.Accept",
         },
+        // Return a 200 response after saving to S3
         integrationResponses: [
           {
             statusCode: "200",
@@ -169,9 +180,11 @@ export class ServerlessApiS3DirectStack extends Stack {
       },
     });
 
-    //PutObject method options
-    const putObjectMethodOptionsv2: MethodOptions = {
+    // Create the endpoint method options
+    const putObjectMethodOptionsAutoName: MethodOptions = {
+      // Protected by API Key
       authorizationType: AuthorizationType.NONE,
+      // Require the API Key on all requests
       apiKeyRequired: true,
       requestParameters: {
         "method.request.header.Accept": true,
@@ -187,10 +200,11 @@ export class ServerlessApiS3DirectStack extends Stack {
       ],
     };
 
+    // assign the integration to /product resource
     productResource.addMethod(
       "PUT",
-      putObjectIntegrationv2,
-      putObjectMethodOptionsv2
+      putObjectIntegrationAutoName,
+      putObjectMethodOptionsAutoName
     );
 
     // Secure the API with an API Key
